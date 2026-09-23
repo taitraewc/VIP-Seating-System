@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>貴賓排位系統</title>
+<title>尾牙主桌排位系統</title>
 
 <script>
   function cdnFail(name) {
@@ -78,7 +78,7 @@ button.danger-outline { color: #A23A3A; border-color: #A23A3A; background: #fff;
 .guest-card:active { cursor: grabbing; }
 .guest-card-name { font-weight: 700; font-size: 13.5px; }
 .guest-card-title { font-size: 11.5px; color: #5a5142; margin-top: 1px; }
-.diet-dot { position: absolute; right: 8px; top: 10px; width: 9px; height: 9px; border-radius: 50%; background: #E08A2E; }
+.diet-dot { position: absolute; right: 8px; top: 10px; width: 9px; height: 9px; border-radius: 50%; }
 .attendance-row {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.08);
@@ -113,8 +113,8 @@ button.danger-outline { color: #A23A3A; border-color: #A23A3A; background: #fff;
 .table-header:active { cursor: grabbing; }
 .table-name { font-weight: 800; color: #7A1F2B; font-size: 15px; }
 .table-count { font-size: 12.5px; background: #7A1F2B; color: #F6E7B0; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
-.table-header-actions { margin-left: auto; display: flex; gap: 4px; }
-.table-header-actions button { padding: 4px 7px; }
+.table-header-actions { margin-left: auto; display: flex; gap: 3px; }
+.table-header-actions button { padding: 4px 6px; min-width: 26px; }
 .table-round { position: relative; margin: 14px; }
 .table-surface {
   position: absolute; border-radius: 50%;
@@ -132,7 +132,7 @@ button.danger-outline { color: #A23A3A; border-color: #A23A3A; background: #fff;
 .seat:hover { transform: scale(1.06); z-index: 2; }
 .seat.empty { cursor: default; color: #A99F8C; }
 .seat.occupied { cursor: grab; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
-.seat.diet { border-color: #E08A2E; border-width: 3px; }
+.seat.diet { border-width: 3px; }
 .seat.absent { filter: grayscale(1) brightness(0.92); }
 .seat-name { font-weight: 700; font-size: 11px; word-break: break-all; }
 .seat-title { font-size: 9px; color: #6a6152; margin-top: 1px; }
@@ -185,6 +185,12 @@ function colorForUnit(unit) {
   const color = PALETTE[colorCache.size % PALETTE.length];
   colorCache.set(key, color);
   return color;
+}
+
+// 飲食習慣分類：含「素」（素食、吃素、全素…）→ 綠框；其他飲食禁忌 → 橘框
+function dietBorderColor(diet) {
+  if (!diet || !diet.trim()) return null;
+  return diet.includes('素') ? '#4CAF6D' : '#E08A2E';
 }
 
 /* ============ utils/id ============ */
@@ -246,7 +252,7 @@ function parseGuestExcel(file) {
   });
 }
 
-function exportSeatingToExcel(guests, tables, filename = '貴賓排位表.xlsx') {
+function exportSeatingToExcel(guests, tables, filename = '尾牙排位表.xlsx') {
   const guestMap = new Map(guests.map((g) => [g.id, g]));
   const seatedRows = [];
   tables.forEach((t) => {
@@ -337,9 +343,9 @@ function exportTableAsImage(table, guestsById, showTitles) {
     ctx.fillStyle = guest ? colorForUnit(guest.unit) : '#F0EDE6';
     ctx.fill();
 
-    const hasDiet = guest && guest.diet;
-    ctx.lineWidth = hasDiet ? 5 : 2;
-    ctx.strokeStyle = hasDiet ? '#E08A2E' : '#B8AF9E';
+    const dietColor = guest ? dietBorderColor(guest.diet) : null;
+    ctx.lineWidth = dietColor ? 5 : 2;
+    ctx.strokeStyle = dietColor || '#B8AF9E';
     ctx.stroke();
 
     if (guest && guest.attending === false) {
@@ -383,7 +389,7 @@ function GuestCard({ guest, onDragStart, onContextMenu, draggable = true }) {
       title="拖拉可安排座位・右鍵查看詳細資料">
       <div className="guest-card-name">{guest.name}</div>
       {guest.title && <div className="guest-card-title">{guest.title}</div>}
-      {guest.diet && <span className="diet-dot" title={`飲食習慣：${guest.diet}`} />}
+      {guest.diet && <span className="diet-dot" style={{ background: dietBorderColor(guest.diet) }} title={`飲食習慣：${guest.diet}`} />}
     </div>
   );
 }
@@ -411,7 +417,7 @@ function Sidebar({
   return (
     <aside className="sidebar" onDragOver={(e) => e.preventDefault()} onDrop={onDropToPool}>
       <div className="sidebar-header">
-        <h1>貴賓排位系統</h1>
+        <h1>尾牙主桌排位系統</h1>
         <div className="toolbar-buttons">
           <button onClick={onImportClick}>📥 匯入 Excel</button>
           <button onClick={onAddGuestClick}>➕ 新增貴賓</button>
@@ -470,7 +476,7 @@ function Sidebar({
 
 function TableCard({
   table, guestsById, showTitles, onDropOnSeat, onDragStartSeat, onDropOnTable,
-  onDragStartTable, onSeatContextMenu, onExportImage, onDeleteTable, onRename,
+  onDragStartTable, onSeatContextMenu, onExportImage, onDeleteTable, onRename, onChangeCapacity,
 }) {
   const occupied = table.seats.filter(Boolean).length;
   const size = 340;
@@ -491,6 +497,8 @@ function TableCard({
         </span>
         <span className="table-count">{occupied} / {table.capacity}</span>
         <div className="table-header-actions">
+          <button title="減少一個座位" onClick={(e) => { e.stopPropagation(); onChangeCapacity(table.id, -1); }}>－</button>
+          <button title="增加一個座位" onClick={(e) => { e.stopPropagation(); onChangeCapacity(table.id, 1); }}>＋</button>
           <button title="匯出此桌圖片" onClick={() => onExportImage(table)}>🖼</button>
           <button title="刪除此桌" onClick={() => onDeleteTable(table.id)}>🗑</button>
         </div>
@@ -510,13 +518,13 @@ function TableCard({
           const x = center + orbit * Math.cos(angle) - seatSize / 2;
           const y = center + orbit * Math.sin(angle) - seatSize / 2;
           const guest = guestId ? guestsById.get(guestId) : null;
-          const hasDiet = guest && guest.diet;
+          const dietColor = guest ? dietBorderColor(guest.diet) : null;
           const isAbsent = guest && guest.attending === false;
 
           return (
             <div key={idx}
-              className={`seat ${guest ? 'occupied' : 'empty'} ${hasDiet ? 'diet' : ''} ${isAbsent ? 'absent' : ''}`}
-              style={{ width: seatSize, height: seatSize, left: x, top: y, background: guest ? colorForUnit(guest.unit) : undefined }}
+              className={`seat ${guest ? 'occupied' : 'empty'} ${dietColor ? 'diet' : ''} ${isAbsent ? 'absent' : ''}`}
+              style={{ width: seatSize, height: seatSize, left: x, top: y, background: guest ? colorForUnit(guest.unit) : undefined, borderColor: dietColor || undefined }}
               draggable={!!guest}
               onDragStart={(e) => guest && onDragStartSeat(e, table.id, idx, guest.id)}
               onDragOver={(e) => e.preventDefault()}
@@ -640,8 +648,9 @@ function AddGuestModal({ onClose, onAdd }) {
 }
 
 function AddTableModal({ onClose, onAdd, defaultName }) {
-  const [capacity, setCapacity] = useState(12);
+  const [capacity, setCapacity] = useState(10);
   const [name, setName] = useState(defaultName);
+  const clampCap = (n) => Math.max(1, Math.min(30, n));
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -655,7 +664,9 @@ function AddTableModal({ onClose, onAdd, defaultName }) {
           <input value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="modal-field">
-          <label>座位數</label>
+          <label>座位數（之後可在桌卡右上角自由增減）</label>
+          <input type="number" min={1} max={30} value={capacity}
+            onChange={(e) => setCapacity(clampCap(Number(e.target.value) || 1))} />
           <div className="capacity-options">
             {[8, 10, 12, 16].map((c) => (
               <button key={c} className={capacity === c ? 'active' : ''} onClick={() => setCapacity(c)}>{c} 人</button>
@@ -672,7 +683,7 @@ function AddTableModal({ onClose, onAdd, defaultName }) {
 }
 
 /* ============ App ============ */
-const DEFAULT_CAPACITY = 12;
+const DEFAULT_CAPACITY = 10;
 function emptyTable(index, capacity = DEFAULT_CAPACITY) {
   return { id: makeId('table'), name: `主桌${index}`, capacity, seats: Array(capacity).fill(null) };
 }
@@ -826,6 +837,35 @@ function App() {
     setTables((prev) => prev.map((t) => (t.id === table.id ? { ...t, name } : t)));
   };
 
+  const handleChangeCapacity = (tableId, delta) => {
+    setTables((prev) => {
+      const t = prev.find((tb) => tb.id === tableId);
+      if (!t) return prev;
+      const newCap = Math.max(1, Math.min(30, t.capacity + delta));
+      if (newCap === t.capacity) return prev;
+
+      if (newCap < t.capacity) {
+        const removed = t.seats.slice(newCap).filter(Boolean);
+        if (removed.length > 0) {
+          const names = removed
+            .map((gid) => { const g = guestsById.get(gid); return g ? g.name : null; })
+            .filter(Boolean)
+            .join('、');
+          const ok = window.confirm(`減少座位會把「${names}」移回待排清單，確定要繼續嗎？`);
+          if (!ok) return prev;
+        }
+      }
+
+      return prev.map((tb) => {
+        if (tb.id !== tableId) return tb;
+        let seats = [...tb.seats];
+        if (newCap > seats.length) seats = seats.concat(Array(newCap - seats.length).fill(null));
+        else seats = seats.slice(0, newCap);
+        return { ...tb, capacity: newCap, seats };
+      });
+    });
+  };
+
   const handleGuestContextMenu = (guest) => setDetailGuestId(guest.id);
   const handleSaveGuest = (form) => setGuests((prev) => prev.map((g) => (g.id === form.id ? { ...form } : g)));
   const handleDeleteGuest = (guestId) => {
@@ -841,7 +881,7 @@ function App() {
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = '貴賓排位專案.json';
+    a.href = url; a.download = '尾牙排位專案.json';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
@@ -912,7 +952,8 @@ function App() {
                 onDropOnSeat={onDropOnSeat} onDragStartSeat={onDragStartSeat}
                 onDropOnTable={onDropOnTable} onDragStartTable={onDragStartTable}
                 onSeatContextMenu={handleGuestContextMenu} onExportImage={handleExportTableImage}
-                onDeleteTable={handleDeleteTable} onRename={handleRenameTable} />
+                onDeleteTable={handleDeleteTable} onRename={handleRenameTable}
+                onChangeCapacity={handleChangeCapacity} />
             ))}
           </div>
         </div>
