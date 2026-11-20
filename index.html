@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>尾牙主桌排位系統</title>
+<title>尾牙主桌排位系統（多人即時協作版）</title>
 
 <script>
   function cdnFail(name) {
@@ -57,11 +57,12 @@ button {
   cursor: pointer; border: 1px solid #D9CBA3; background: #FFFDF8; color: #4A3A22;
   border-radius: 8px; padding: 7px 10px; font-size: 12.5px; transition: all 0.15s ease;
 }
-button:hover { background: #F3E9CE; }
+button:hover:not(:disabled) { background: #F3E9CE; }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
 button.primary { background: #B8862F; border-color: #B8862F; color: #fff; font-weight: 600; }
-button.primary:hover { background: #A2761F; }
+button.primary:hover:not(:disabled) { background: #A2761F; }
 button.danger { background: #A23A3A; border-color: #A23A3A; color: #fff; }
-button.danger:hover { background: #872E2E; }
+button.danger:hover:not(:disabled) { background: #872E2E; }
 button.danger-outline { color: #A23A3A; border-color: #A23A3A; background: #fff; }
 .sidebar-tabs { display: flex; border-bottom: 1px solid #EFE6D2; }
 .sidebar-tabs button { flex: 1; border: none; border-radius: 0; background: #FBF7EF; padding: 10px 4px; font-size: 12.5px; }
@@ -98,11 +99,30 @@ button.danger-outline { color: #A23A3A; border-color: #A23A3A; background: #fff;
 
 /* ---------- Canvas Area ---------- */
 .canvas-area { flex: 1; display: flex; flex-direction: column; position: relative; height: 100%; overflow: hidden; }
-.canvas-top-bar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: #fff; border-bottom: 1px solid #EFE6D2; }
+.canvas-top-bar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: #fff; border-bottom: 1px solid #EFE6D2; flex-wrap: wrap; }
 .canvas-top-bar .spacer { flex: 1; }
 .stat { font-size: 13px; color: #5a5142; font-weight: 600; }
 .canvas-scroll { flex: 1; overflow: auto; padding: 24px; }
 .tables-grid { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; }
+
+/* Sync & Presence Badges */
+.sync-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; padding: 5px 10px; border-radius: 20px;
+  background: #FBF7EF; border: 1px solid #E1D6B8; color: #5a5142; font-weight: 600;
+}
+.sync-badge.synced { background: #E9F7EF; border-color: #A9DFBF; color: #1E8449; }
+.sync-badge.syncing { background: #FEF9E7; border-color: #F9E79F; color: #9A7D0A; }
+.sync-badge.error { background: #FDEDEC; border-color: #F5B7B1; color: #922B21; }
+
+.presence-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; padding: 5px 10px; border-radius: 20px;
+  background: #EBF5FB; border: 1px solid #AED6F1; color: #1B4F72; font-weight: 600;
+}
+.presence-badge.multi {
+  background: #FEF5E7; border-color: #F8C471; color: #9C640C;
+}
 
 /* ---------- Table Card ---------- */
 .table-card { background: #fff; border-radius: 14px; border: 1px solid #EFE6D2; box-shadow: 0 2px 6px rgba(0,0,0,0.05); overflow: hidden; }
@@ -148,20 +168,30 @@ button.danger-outline { color: #A23A3A; border-color: #A23A3A; background: #fff;
 .zoom-control span { font-size: 12.5px; min-width: 40px; text-align: center; font-weight: 600; }
 
 /* ---------- Modal ---------- */
-.modal-overlay { position: fixed; inset: 0; background: rgba(30,20,10,0.45); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.modal-box { background: #fff; border-radius: 14px; padding: 20px 22px; width: 380px; max-height: 86vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
-.modal-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(30,20,10,0.55); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.modal-box { background: #fff; border-radius: 14px; padding: 22px 24px; width: 430px; max-width: 92vw; max-height: 88vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
+.modal-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .modal-title-row h2 { font-size: 16px; margin: 0; color: #7A1F2B; }
 .modal-close { border: none; background: none; font-size: 15px; padding: 4px 8px; }
-.modal-field { margin-bottom: 10px; }
-.modal-field label { display: block; font-size: 11.5px; color: #8a7f68; margin-bottom: 3px; font-weight: 700; }
-.modal-field input { width: 100%; padding: 7px 9px; border: 1px solid #E1D6B8; border-radius: 7px; font-size: 13px; }
+.modal-field { margin-bottom: 12px; }
+.modal-field label { display: block; font-size: 12px; color: #6a5f4b; margin-bottom: 4px; font-weight: 700; }
+.modal-field input { width: 100%; padding: 8px 10px; border: 1px solid #E1D6B8; border-radius: 7px; font-size: 13px; }
 .modal-value { font-size: 14px; padding: 4px 0; }
-.modal-actions { display: flex; gap: 8px; margin-top: 14px; }
+.modal-actions { display: flex; gap: 8px; margin-top: 16px; }
 .modal-actions button { flex: 1; }
 .seat-label-badge { display: inline-block; background: #FBF3DE; color: #7A1F2B; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 20px; margin-bottom: 12px; }
-.capacity-options { display: flex; gap: 6px; }
+.capacity-options { display: flex; gap: 6px; margin-top: 6px; }
 .capacity-options button.active { background: #B8862F; color: #fff; border-color: #B8862F; }
+.api-hint-box { background: #FBF7EF; border: 1px solid #E8DEC8; border-radius: 8px; padding: 10px 12px; font-size: 12px; color: #5a5142; line-height: 1.55; margin-bottom: 12px; }
+.api-error-msg { color: #A23A3A; font-size: 12px; margin-top: 6px; font-weight: 600; }
+
+/* Toast Notification */
+.toast-banner {
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+  background: #2B2118; color: #F6E7B0; padding: 9px 18px; border-radius: 30px;
+  font-size: 13px; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  z-index: 100; pointer-events: none; transition: opacity 0.25s ease;
+}
 
 .loading-screen { display: flex; align-items: center; justify-content: center; height: 100vh; font-size: 15px; color: #7A1F2B; }
 </style>
@@ -187,32 +217,92 @@ function colorForUnit(unit) {
   return color;
 }
 
-// 飲食習慣分類：含「素」（素食、吃素、全素…）→ 綠框；其他飲食禁忌 → 橘框
 function dietBorderColor(diet) {
   if (!diet || !diet.trim()) return null;
   return diet.includes('素') ? '#4CAF6D' : '#E08A2E';
 }
 
-/* ============ utils/id ============ */
+/* ============ utils/id & Client Identity ============ */
 let idCounter = 0;
 function makeId(prefix = 'id') {
   idCounter += 1;
   return `${prefix}_${Date.now().toString(36)}_${idCounter}`;
 }
 
-/* ============ utils/storage ============ */
+// 每個瀏覽器分頁產生獨立 clientId，方便區分多組人同時在線
+const SESSION_CLIENT_ID = `cli_${Math.random().toString(36).slice(2, 8)}`;
+
+/* ============ utils/storage & API Config ============ */
 const STORAGE_KEY = 'yearend-banquet-seating-v1';
-function saveState(state) {
+const API_URL_KEY = 'yearend-banquet-gas-api-url';
+const SHEET_TITLE_KEY = 'yearend-banquet-gas-sheet-title';
+const USER_NAME_KEY = 'yearend-banquet-collab-username';
+
+function saveLocalState(state) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   catch (e) { console.warn('無法儲存至 localStorage', e); }
 }
-function loadState() {
+function loadLocalState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch (e) { console.warn('無法讀取 localStorage', e); return null; }
 }
-function clearState() { localStorage.removeItem(STORAGE_KEY); }
+function clearLocalState() { localStorage.removeItem(STORAGE_KEY); }
+
+function getSavedApiUrl() {
+  return localStorage.getItem(API_URL_KEY) || '';
+}
+function saveApiUrl(url, sheetTitle = '') {
+  if (url) {
+    localStorage.setItem(API_URL_KEY, url.trim());
+    if (sheetTitle) localStorage.setItem(SHEET_TITLE_KEY, sheetTitle);
+  } else {
+    localStorage.removeItem(API_URL_KEY);
+    localStorage.removeItem(SHEET_TITLE_KEY);
+  }
+}
+function getSavedSheetTitle() {
+  return localStorage.getItem(SHEET_TITLE_KEY) || '';
+}
+function getSavedUserName() {
+  return localStorage.getItem(USER_NAME_KEY) || `協作者_${SESSION_CLIENT_ID.slice(-4).toUpperCase()}`;
+}
+function saveUserName(name) {
+  if (name && name.trim()) localStorage.setItem(USER_NAME_KEY, name.trim());
+}
+
+/* ============ utils/googleSheetApi ============ */
+async function fetchFromGoogleSheet(apiUrl, { clientId, clientName, knownVersion = 0 } = {}) {
+  const params = new URLSearchParams({
+    t: String(Date.now()),
+    clientId: clientId || '',
+    clientName: clientName || '',
+    knownVersion: String(knownVersion || 0),
+  });
+  const sep = apiUrl.includes('?') ? '&' : '?';
+  const res = await fetch(`${apiUrl}${sep}${params.toString()}`, { method: 'GET' });
+  if (!res.ok) throw new Error(`HTTP 錯誤 (${res.status})`);
+  const data = await res.json();
+  if (data.status !== 'success' && data.status !== 'not_modified') {
+    throw new Error(data.message || '讀取試算表失敗');
+  }
+  return data;
+}
+
+async function pushToGoogleSheet(apiUrl, payload) {
+  const res = await fetch(apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`HTTP 錯誤 (${res.status})`);
+  const data = await res.json();
+  if (data.status !== 'success' && data.status !== 'conflict') {
+    throw new Error(data.message || '寫入試算表失敗');
+  }
+  return data;
+}
 
 /* ============ utils/excelIO ============ */
 function parseGuestExcel(file) {
@@ -240,7 +330,7 @@ function parseGuestExcel(file) {
             diet: pick(row, ['飲食習慣', '飲食禁忌', '飲食']),
             contact: pick(row, ['聯絡方式', '電話', '手機']),
             note: pick(row, ['其他備註', '備註', '備注']),
-            attending: true,
+            attending: row['出席狀態'] ? String(row['出席狀態']).trim() !== '不出席' : true,
           }))
           .filter((g) => g.name);
 
@@ -547,6 +637,109 @@ function TableCard({
   );
 }
 
+/* ============ ApiConfigModal (登入 / 切換 API 與協作者名稱設定) ============ */
+function ApiConfigModal({ isOpen, currentUrl, currentUserName, sheetTitle, onClose, onConnectSuccess, onDisconnect, canClose }) {
+  const [urlInput, setUrlInput] = useState(currentUrl || '');
+  const [nameInput, setNameInput] = useState(currentUserName || '');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setUrlInput(currentUrl || '');
+    setNameInput(currentUserName || '');
+    setError('');
+  }, [currentUrl, currentUserName, isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleConnect = async () => {
+    const trimmedUrl = urlInput.trim();
+    const trimmedName = nameInput.trim() || getSavedUserName();
+    if (!trimmedUrl) {
+      setError('請輸入 Google Apps Script 網頁應用程式網址');
+      return;
+    }
+    if (!trimmedUrl.startsWith('https://script.google.com/')) {
+      setError('網址格式不正確，應以 https://script.google.com/ 開頭');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      saveUserName(trimmedName);
+      const data = await fetchFromGoogleSheet(trimmedUrl, {
+        clientId: SESSION_CLIENT_ID,
+        clientName: trimmedName,
+        knownVersion: 0,
+      });
+      onConnectSuccess(trimmedUrl, trimmedName, data);
+    } catch (err) {
+      console.error(err);
+      setError(`連線失敗：${err.message}（請確認部署權限已設為「所有人」）`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={canClose ? onClose : undefined}>
+      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-title-row">
+          <h2>☁️ Google Sheet 雲端協作設定</h2>
+          {canClose && <button className="modal-close" onClick={onClose}>✕</button>}
+        </div>
+
+        <div className="api-hint-box">
+          登入後本機將自動記憶網址。系統每 <strong>20 秒</strong>會自動同步雲端最新修改，並即時顯示目前有幾組人員在線上共同編輯。
+          {sheetTitle && (
+            <div style={{ marginTop: 6, color: '#1E8449', fontWeight: 700 }}>
+              目前連線試算表：{sheetTitle}
+            </div>
+          )}
+        </div>
+
+        <div className="modal-field">
+          <label>你的協作顯示名稱（讓其他同仁知道誰在線上）</label>
+          <input
+            type="text"
+            placeholder="例：公關組-潔心"
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            disabled={loading}
+          />
+        </div>
+
+        <div className="modal-field">
+          <label>Google Apps Script Web App URL *</label>
+          <input
+            type="url"
+            placeholder="https://script.google.com/macros/s/.../exec"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            disabled={loading}
+          />
+          {error && <div className="api-error-msg">⚠️ {error}</div>}
+        </div>
+
+        <div className="modal-actions">
+          <button className="primary" onClick={handleConnect} disabled={loading}>
+            {loading ? '連線讀取中...' : '儲存並載入資料'}
+          </button>
+          {currentUrl && (
+            <button className="danger-outline" onClick={onDisconnect} disabled={loading}>
+              登出 / 改用單機
+            </button>
+          )}
+          {canClose && (
+            <button onClick={onClose} disabled={loading}>取消</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GuestDetailModal({ guest, seatLabel, onClose, onSave, onDelete, onUnseat, onToggleAttending }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(guest);
@@ -689,11 +882,22 @@ function emptyTable(index, capacity = DEFAULT_CAPACITY) {
 }
 
 function App() {
-  const saved = loadState();
+  const savedLocal = loadLocalState();
+  const initialApiUrl = getSavedApiUrl();
 
-  const [guests, setGuests] = useState((saved && saved.guests) || []);
-  const [tables, setTables] = useState((saved && saved.tables) || [emptyTable(1)]);
-  const [showTitles, setShowTitles] = useState(saved && typeof saved.showTitles === 'boolean' ? saved.showTitles : true);
+  const [apiUrl, setApiUrl] = useState(initialApiUrl);
+  const [userName, setUserName] = useState(getSavedUserName());
+  const [sheetTitle, setSheetTitle] = useState(getSavedSheetTitle());
+  const [apiModalOpen, setApiModalOpen] = useState(!initialApiUrl);
+
+  const [syncStatus, setSyncStatus] = useState(initialApiUrl ? 'loading' : 'offline');
+  const [syncMessage, setSyncMessage] = useState('');
+  const [activeUsers, setActiveUsers] = useState([]);
+  const [toastMsg, setToastMsg] = useState('');
+
+  const [guests, setGuests] = useState((savedLocal && savedLocal.guests) || []);
+  const [tables, setTables] = useState((savedLocal && savedLocal.tables) || [emptyTable(1)]);
+  const [showTitles, setShowTitles] = useState(savedLocal && typeof savedLocal.showTitles === 'boolean' ? savedLocal.showTitles : true);
   const [zoom, setZoom] = useState(1);
 
   const [detailGuestId, setDetailGuestId] = useState(null);
@@ -703,7 +907,200 @@ function App() {
   const fileInputRef = useRef(null);
   const projectInputRef = useRef(null);
 
-  useEffect(() => { saveState({ guests, tables, showTitles }); }, [guests, tables, showTitles]);
+  // 追蹤目前本機掌握的雲端版本號與同步狀態
+  const serverVersionRef = useRef(0);
+  const skipNextPushRef = useRef(false);
+  const isPushingRef = useRef(false);
+  const isDraggingRef = useRef(false);
+  const pushTimerRef = useRef(null);
+
+  const showToast = useCallback((msg) => {
+    setToastMsg(msg);
+    setTimeout(() => {
+      setToastMsg((prev) => (prev === msg ? '' : prev));
+    }, 3500);
+  }, []);
+
+  // 套用從雲端抓回來的資料
+  const applyRemoteData = useCallback((url, name, data, isAutoPoll = false) => {
+    skipNextPushRef.current = true;
+    const remoteGuests = Array.isArray(data.guests) ? data.guests : [];
+    const remoteTables = Array.isArray(data.tables) && data.tables.length > 0 ? data.tables : [emptyTable(1)];
+    const remoteShowTitles = typeof data.showTitles === 'boolean' ? data.showTitles : true;
+
+    setGuests(remoteGuests);
+    setTables(remoteTables);
+    setShowTitles(remoteShowTitles);
+    saveLocalState({ guests: remoteGuests, tables: remoteTables, showTitles: remoteShowTitles });
+
+    if (typeof data.version === 'number') {
+      serverVersionRef.current = data.version;
+    }
+    if (Array.isArray(data.activeUsers)) {
+      setActiveUsers(data.activeUsers);
+    }
+
+    const title = data.sheetTitle || sheetTitle || 'Google 試算表';
+    setSheetTitle(title);
+    saveApiUrl(url, title);
+    setApiUrl(url);
+    if (name) setUserName(name);
+
+    const now = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setSyncStatus('synced');
+    setSyncMessage(`已同步 (${now})`);
+
+    if (isAutoPoll) {
+      showToast('🔄 已自動同步其他協作者的最新排位修改');
+    }
+  }, [sheetTitle, showToast]);
+
+  // 1. 啟動時自動登入讀取
+  useEffect(() => {
+    if (!initialApiUrl) return;
+    let cancelled = false;
+    setSyncStatus('loading');
+    setSyncMessage('讀取雲端資料中...');
+
+    fetchFromGoogleSheet(initialApiUrl, {
+      clientId: SESSION_CLIENT_ID,
+      clientName: userName,
+      knownVersion: 0,
+    })
+      .then((data) => {
+        if (!cancelled) applyRemoteData(initialApiUrl, userName, data, false);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error(err);
+          setSyncStatus('error');
+          setSyncMessage('雲端讀取失敗，目前顯示本機快取');
+        }
+      });
+    return () => { cancelled = true; };
+  }, [initialApiUrl]);
+
+  // 2. 每 20 秒背景自動輪詢（偵測在線人數 + 增量更新他人修改）
+  useEffect(() => {
+    if (!apiUrl) return;
+    const intervalId = setInterval(async () => {
+      // 若正在推送資料或使用者正在拖拉滑鼠，略過這次輪詢避免衝突
+      if (isPushingRef.current || isDraggingRef.current) return;
+      try {
+        const data = await fetchFromGoogleSheet(apiUrl, {
+          clientId: SESSION_CLIENT_ID,
+          clientName: userName,
+          knownVersion: serverVersionRef.current,
+        });
+        if (Array.isArray(data.activeUsers)) {
+          setActiveUsers(data.activeUsers);
+        }
+        if (data.status === 'success') {
+          // 雲端有更新版本，套用最新內容
+          applyRemoteData(apiUrl, userName, data, true);
+        }
+      } catch (err) {
+        console.warn('背景輪詢略過：', err);
+      }
+    }, 20000);
+
+    return () => clearInterval(intervalId);
+  }, [apiUrl, userName, applyRemoteData]);
+
+  // 3. 本地資料變動時，防抖自動寫入雲端（附帶版本號檢查防覆蓋）
+  useEffect(() => {
+    saveLocalState({ guests, tables, showTitles });
+
+    if (!apiUrl) return;
+    if (skipNextPushRef.current) {
+      skipNextPushRef.current = false;
+      return;
+    }
+
+    setSyncStatus('syncing');
+    setSyncMessage('準備同步...');
+
+    if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    pushTimerRef.current = setTimeout(async () => {
+      isPushingRef.current = true;
+      setSyncMessage('同步中...');
+      try {
+        const res = await pushToGoogleSheet(apiUrl, {
+          clientId: SESSION_CLIENT_ID,
+          clientName: userName,
+          baseVersion: serverVersionRef.current,
+          guests,
+          tables,
+          showTitles,
+        });
+
+        if (Array.isArray(res.activeUsers)) {
+          setActiveUsers(res.activeUsers);
+        }
+
+        if (res.status === 'conflict') {
+          // 偵測到別人比你早一步存檔，立刻拉取最新狀態避免蓋掉對方
+          showToast('⚠️ 偵測到其他同仁剛剛修改了資料，已為您自動載入最新版本');
+          const latest = await fetchFromGoogleSheet(apiUrl, {
+            clientId: SESSION_CLIENT_ID,
+            clientName: userName,
+            knownVersion: 0,
+          });
+          applyRemoteData(apiUrl, userName, latest, false);
+        } else {
+          if (typeof res.version === 'number') {
+            serverVersionRef.current = res.version;
+          }
+          const now = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          setSyncStatus('synced');
+          setSyncMessage(`已同步 (${now})`);
+        }
+      } catch (err) {
+        console.error(err);
+        setSyncStatus('error');
+        setSyncMessage('雲端儲存失敗，請檢查網路');
+      } finally {
+        isPushingRef.current = false;
+      }
+    }, 1000);
+
+    return () => {
+      if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    };
+  }, [guests, tables, showTitles, apiUrl, userName, applyRemoteData, showToast]);
+
+  const handleManualPull = async () => {
+    if (!apiUrl) {
+      setApiModalOpen(true);
+      return;
+    }
+    setSyncStatus('loading');
+    setSyncMessage('重新讀取雲端中...');
+    try {
+      const data = await fetchFromGoogleSheet(apiUrl, {
+        clientId: SESSION_CLIENT_ID,
+        clientName: userName,
+        knownVersion: 0,
+      });
+      applyRemoteData(apiUrl, userName, data, false);
+      showToast('✅ 已更新為雲端最新排位資料');
+    } catch (err) {
+      setSyncStatus('error');
+      setSyncMessage('讀取失敗：' + err.message);
+    }
+  };
+
+  const handleDisconnectApi = () => {
+    if (!window.confirm('確定要中斷雲端 API 連線嗎？（本機資料仍會保留）')) return;
+    saveApiUrl('');
+    setApiUrl('');
+    setSheetTitle('');
+    setActiveUsers([]);
+    serverVersionRef.current = 0;
+    setSyncStatus('offline');
+    setSyncMessage('單機模式');
+    setApiModalOpen(false);
+  };
 
   const guestsById = useMemo(() => new Map(guests.map((g) => [g.id, g])), [guests]);
   const detailGuest = detailGuestId ? guestsById.get(detailGuestId) || null : null;
@@ -744,23 +1141,33 @@ function App() {
   const dragPayload = useRef(null);
 
   const onDragStartGuest = (e, guest) => {
+    isDraggingRef.current = true;
     dragPayload.current = { type: 'guest', guestId: guest.id };
     e.dataTransfer.effectAllowed = 'move';
   };
   const onDragStartSeat = (e, tableId, seatIndex, guestId) => {
+    isDraggingRef.current = true;
     dragPayload.current = { type: 'seat', tableId, seatIndex, guestId };
     e.dataTransfer.effectAllowed = 'move';
   };
   const onDragStartTable = (e, tableId) => {
+    isDraggingRef.current = true;
     dragPayload.current = { type: 'table', tableId };
     e.dataTransfer.effectAllowed = 'move';
   };
+
+  useEffect(() => {
+    const endDrag = () => { isDraggingRef.current = false; };
+    window.addEventListener('dragend', endDrag);
+    return () => window.removeEventListener('dragend', endDrag);
+  }, []);
 
   const removeGuestFromAllSeats = (tablesState, guestId) =>
     tablesState.map((t) => ({ ...t, seats: t.seats.map((g) => (g === guestId ? null : g)) }));
 
   const onDropOnSeat = (e, targetTableId, targetSeatIndex) => {
     e.preventDefault(); e.stopPropagation();
+    isDraggingRef.current = false;
     const payload = dragPayload.current;
     dragPayload.current = null;
     if (!payload) return;
@@ -794,6 +1201,7 @@ function App() {
 
   const onDropOnTable = (e, targetTableId) => {
     e.preventDefault(); e.stopPropagation();
+    isDraggingRef.current = false;
     const payload = dragPayload.current;
     dragPayload.current = null;
     if (!payload || payload.type !== 'table') return;
@@ -813,6 +1221,7 @@ function App() {
 
   const onDropToPool = (e) => {
     e.preventDefault();
+    isDraggingRef.current = false;
     const payload = dragPayload.current;
     dragPayload.current = null;
     if (!payload || payload.type !== 'seat') return;
@@ -914,11 +1323,18 @@ function App() {
   };
 
   const handleClearAll = () => {
-    if (!window.confirm('這會清除所有賓客與桌次資料，確定要全部清空嗎？')) return;
-    clearState();
+    if (!window.confirm('這會清除所有賓客與桌次資料（若有連線雲端也會同步清空），確定要全部清空嗎？')) return;
+    clearLocalState();
     setGuests([]);
     setTables([emptyTable(1)]);
   };
+
+  // 整理目前在線名單顯示文字
+  const onlineCount = Math.max(1, activeUsers.length);
+  const otherUsers = activeUsers.filter((u) => u.id !== SESSION_CLIENT_ID);
+  const presenceLabel = otherUsers.length > 0
+    ? `👥 共 ${onlineCount} 人同時在線（你、${otherUsers.map((u) => u.name).join('、')}）`
+    : `👤 僅你一人在線（${userName}）`;
 
   return (
     <div className="app">
@@ -939,6 +1355,30 @@ function App() {
           <button className="primary" onClick={() => setAddTableOpen(true)}>➕ 新增桌次</button>
           <button onClick={handleImportProjectClick}>📂 匯入專案</button>
           <button className="danger-outline" onClick={handleClearAll}>清空全部資料</button>
+
+          <button onClick={() => setApiModalOpen(true)} title="設定或切換 Google Sheet API 網址">
+            ⚙️ API 設定
+          </button>
+          {apiUrl && (
+            <button onClick={handleManualPull} title="立即從 Google Sheet 同步最新資料">
+              🔄 立即同步
+            </button>
+          )}
+
+          <div className={`sync-badge ${syncStatus === 'synced' ? 'synced' : (syncStatus === 'syncing' || syncStatus === 'loading') ? 'syncing' : syncStatus === 'error' ? 'error' : ''}`}>
+            {syncStatus === 'synced' && '🟢 '}
+            {(syncStatus === 'syncing' || syncStatus === 'loading') && '🟡 '}
+            {syncStatus === 'error' && '🔴 '}
+            {syncStatus === 'offline' && '⚪ '}
+            {syncMessage || (apiUrl ? `雲端：${sheetTitle || '已連線'}` : '單機模式（未連結雲端）')}
+          </div>
+
+          {apiUrl && (
+            <div className={`presence-badge ${otherUsers.length > 0 ? 'multi' : ''}`} title="每 20 秒自動偵測在線人員與同步最新修改">
+              {presenceLabel}
+            </div>
+          )}
+
           <div className="spacer" />
           <span className="stat">
             共 {tables.length} 桌・已排 {seatedGuestIds.size} 人・待排 {guests.length - seatedGuestIds.size} 人
@@ -964,6 +1404,22 @@ function App() {
           <button onClick={() => setZoom((z) => Math.min(1.5, +(z + 0.1).toFixed(2)))}>＋</button>
         </div>
       </main>
+
+      {toastMsg && <div className="toast-banner">{toastMsg}</div>}
+
+      <ApiConfigModal
+        isOpen={apiModalOpen}
+        currentUrl={apiUrl}
+        currentUserName={userName}
+        sheetTitle={sheetTitle}
+        canClose={true}
+        onClose={() => setApiModalOpen(false)}
+        onConnectSuccess={(url, name, data) => {
+          applyRemoteData(url, name, data, false);
+          setApiModalOpen(false);
+        }}
+        onDisconnect={handleDisconnectApi}
+      />
 
       {detailGuest && (
         <GuestDetailModal guest={detailGuest} seatLabel={seatLabelFor(detailGuest.id)}
