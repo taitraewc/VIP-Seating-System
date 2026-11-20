@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>尾牙主桌排位系統（多人即時協作版）</title>
+<title>尾牙主桌排位系統（智慧合併協作版）</title>
 
 <script>
   function cdnFail(name) {
@@ -230,6 +230,123 @@ function makeId(prefix = 'id') {
 }
 
 const SESSION_CLIENT_ID = `cli_${Math.random().toString(36).slice(2, 8)}`;
+
+/* ============ utils/smartMerge (三向智慧自動合併引擎) ============ */
+function deepClone(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+function smartMergeStates(base, local, remote) {
+  // 若沒有基準快照，直接以本地為準
+  if (!base) return deepClone(local);
+
+  const baseGuestMap = new Map((base.guests || []).map((g) => [g.id, JSON.stringify(g)]));
+  const localGuestMap = new Map((local.guests || []).map((g) => [g.id, g]));
+  const remoteGuestMap = new Map((remote.guests || []).map((g) => [g.id, g]));
+
+  // 1. 合併賓客名單（保留雙方新增、保留本地修改的欄位、納入遠端修改的欄位）
+  const mergedGuests = [];
+  const processedGuestIds = new Set();
+
+  // 先走訪本地賓客
+  (local.guests || []).forEach((lg) => {
+    processedGuestIds.add(lg.id);
+    const rg = remoteGuestMap.get(lg.id);
+    const bgStr = baseGuestMap.get(lg.id);
+
+    if (!rg) {
+      // 如果基準裡有，但遠端刪除了，且本地沒改過 -> 尊重遠端刪除
+      if (bgStr && JSON.stringify(lg) === bgStr) return;
+      mergedGuests.push(deepClone(lg));
+    } else {
+      // 雙方都有：若本地有改過就用本地，否則用遠端最新
+      const localChanged = JSON.stringify(lg) !== bgStr;
+      mergedGuests.push(deepClone(localChanged ? lg : rg));
+    }
+  });
+
+  // 再納入遠端新增的賓客
+  (remote.guests || []).forEach((rg) => {
+    if (processedGuestIds.has(rg.id)) return;
+    // 如果基準裡本來有，代表是本地剛刪除的 -> 尊重本地刪除
+    if (baseGuestMap.has(rg.id)) return;
+    mergedGuests.push(deepClone(rg));
+  });
+
+  const validGuestIds = new Set(mergedGuests.map((g) => g.id));
+
+  // 2. 合併桌次與座位（依桌次 ID 做三向比對）
+  const baseTableMap = new Map((base.tables || []).map((t) => [t.id, JSON.stringify(t)]));
+  const localTableMap = new Map((local.tables || []).map((t) => [t.id, t]));
+  const remoteTableMap = new Map((remote.tables || []).map((t) => [t.id, t]));
+
+  const mergedTables = [];
+  const processedTableIds = new Set();
+
+  // 先走訪遠端桌次順序，若有本地修改過的桌子就採用本地版本，未動過的桌子採用遠端最新版本
+  (remote.tables || []).forEach((rt) => {
+    processedTableIds.add(rt.id);
+    const lt = localTableMap.get(rt.id);
+    const btStr = baseTableMap.get(rt.id);
+
+    if (!lt) {
+      // 基準裡有、本地刪除了這桌，且遠端沒改動 -> 尊重本地刪除
+      if (btStr && JSON.stringify(rt) === btStr) return;
+      mergedTables.push(deepClone(rt));
+    } else {
+      const localTableChanged = JSON.stringify(lt) !== btStr;
+      mergedTables.push(deepClone(localTableChanged ? lt : rt));
+    }
+  });
+
+  // 納入本地新增的桌子
+  (local.tables || []).forEach((lt) => {
+    if (processedTableIds.has(lt.id)) return;
+    if (baseTableMap.has(lt.id)) return; // 遠端已刪除此桌
+    mergedTables.push(deepClone(lt));
+  });
+
+  // 3. 座位去重與清理（確保同一位貴賓不會同時出現在兩張桌子，且已刪除貴賓會被清空）
+  // 優先保留「本地有修改過的桌子」上的座位歸屬
+  const localModifiedTableIds = new Set();
+  (local.tables || []).forEach((lt) => {
+    if (JSON.stringify(lt) !== baseTableMap.get(lt.id)) {
+      localModifiedTableIds.add(lt.id);
+    }
+  });
+
+  const assignedGuests = new Set();
+
+  // 第一輪：先鎖定本地動過的桌子上的貴賓
+  mergedTables.forEach((t) => {
+    if (!localModifiedTableIds.has(t.id)) return;
+    t.seats = t.seats.map((gid) => {
+      if (!gid || !validGuestIds.has(gid)) return null;
+      if (assignedGuests.has(gid)) return null;
+      assignedGuests.add(gid);
+      return gid;
+    });
+  });
+
+  // 第二輪：處理其他桌子，若貴賓已被排進本地修改的桌子，則自動從原位移除
+  mergedTables.forEach((t) => {
+    if (localModifiedTableIds.has(t.id)) return;
+    t.seats = t.seats.map((gid) => {
+      if (!gid || !validGuestIds.has(gid)) return null;
+      if (assignedGuests.has(gid)) return null;
+      assignedGuests.add(gid);
+      return gid;
+    });
+  });
+
+  const mergedShowTitles = local.showTitles !== base.showTitles ? local.showTitles : remote.showTitles;
+
+  return {
+    guests: mergedGuests,
+    tables: mergedTables.length > 0 ? mergedTables : [emptyTable(1)],
+    showTitles: typeof mergedShowTitles === 'boolean' ? mergedShowTitles : true,
+  };
+}
 
 /* ============ utils/storage & API Config ============ */
 const STORAGE_KEY = 'yearend-banquet-seating-v1';
@@ -690,7 +807,7 @@ function ApiConfigModal({ isOpen, currentUrl, currentUserName, sheetTitle, onClo
         </div>
 
         <div className="api-hint-box">
-          登入後本機將自動記憶網址。系統每 <strong>20 秒</strong>會自動同步雲端最新修改，並即時顯示目前有幾組人員在線上共同編輯。
+          登入後本機將自動記憶網址。系統具備<strong>智慧三向自動合併</strong>，多位同仁各自編輯不同桌次時會自動整合進度。
           {sheetTitle && (
             <div style={{ marginTop: 6, color: '#1E8449', fontWeight: 700 }}>
               目前連線試算表：{sheetTitle}
@@ -906,17 +1023,18 @@ function App() {
   const fileInputRef = useRef(null);
   const projectInputRef = useRef(null);
 
-  // ★ 核心防覆蓋與排隊狀態控制 Refs
+  // ★ 核心同步與三向合併狀態控制 Refs
   const serverVersionRef = useRef(0);
+  const baseSnapshotRef = useRef(null); // 儲存「上次與雲端同步成功時的基準快照」
   const skipNextPushRef = useRef(false);
   const isPushingRef = useRef(false);
   const isDraggingRef = useRef(false);
-  const hasPendingChangesRef = useRef(false); // 只要本地有還沒存上雲端的修改，就鎖住不讓輪詢覆蓋畫面
-  const localEditSeqRef = useRef(0);         // 每次本地修改遞增序號，用來判斷推送期間是否又做了新操作
+  const hasPendingChangesRef = useRef(false);
+  const pendingSinceRef = useRef(0);      // 記錄待同步起始時間（超過 15 秒自動防卡死解鎖）
+  const localEditSeqRef = useRef(0);
   const latestStateRef = useRef({ guests, tables, showTitles });
   const pushTimerRef = useRef(null);
 
-  // 永遠保持 latestStateRef 指向畫面最新狀態
   useEffect(() => {
     latestStateRef.current = { guests, tables, showTitles };
   }, [guests, tables, showTitles]);
@@ -928,24 +1046,27 @@ function App() {
     }, 3500);
   }, []);
 
-  // 套用從雲端抓回來的資料
+  // 套用從雲端抓回來的資料並更新基準快照
   const applyRemoteData = useCallback((url, name, data, isAutoPoll = false) => {
-    // 若是背景自動輪詢，但使用者此刻有尚未存上雲端的新操作，絕對不能蓋掉使用者畫面
     if (isAutoPoll && (hasPendingChangesRef.current || isPushingRef.current || isDraggingRef.current)) {
       return;
     }
 
     skipNextPushRef.current = true;
     hasPendingChangesRef.current = false;
+    pendingSinceRef.current = 0;
 
     const remoteGuests = Array.isArray(data.guests) ? data.guests : [];
     const remoteTables = Array.isArray(data.tables) && data.tables.length > 0 ? data.tables : [emptyTable(1)];
     const remoteShowTitles = typeof data.showTitles === 'boolean' ? data.showTitles : true;
 
+    const cleanState = { guests: remoteGuests, tables: remoteTables, showTitles: remoteShowTitles };
+    baseSnapshotRef.current = deepClone(cleanState);
+
     setGuests(remoteGuests);
     setTables(remoteTables);
     setShowTitles(remoteShowTitles);
-    saveLocalState({ guests: remoteGuests, tables: remoteTables, showTitles: remoteShowTitles });
+    saveLocalState(cleanState);
 
     if (typeof data.version === 'number') {
       serverVersionRef.current = data.version;
@@ -994,12 +1115,21 @@ function App() {
     return () => { cancelled = true; };
   }, [initialApiUrl]);
 
-  // 2. 每 20 秒背景自動輪詢
+  // 2. 每 20 秒背景自動輪詢（含斷線超時解鎖保護）
   useEffect(() => {
     if (!apiUrl) return;
     const intervalId = setInterval(async () => {
-      // 有未儲存修改、正在推送、或正在拖拉時，跳過輪詢避免還原動作
+      // 斷線超時保護：若本地修改超過 15 秒仍未成功送出，強制解鎖避免永久卡死
+      if (hasPendingChangesRef.current && pendingSinceRef.current > 0 && (Date.now() - pendingSinceRef.current > 15000)) {
+        console.warn('同步超時，解除本地鎖定以恢復雲端連線');
+        hasPendingChangesRef.current = false;
+        pendingSinceRef.current = 0;
+        isPushingRef.current = false;
+        showToast('⚠️ 剛才網路連線異常，已重新與雲端對齊');
+      }
+
       if (hasPendingChangesRef.current || isPushingRef.current || isDraggingRef.current) return;
+
       try {
         const data = await fetchFromGoogleSheet(apiUrl, {
           clientId: SESSION_CLIENT_ID,
@@ -1018,15 +1148,15 @@ function App() {
     }, 20000);
 
     return () => clearInterval(intervalId);
-  }, [apiUrl, userName, applyRemoteData]);
+  }, [apiUrl, userName, applyRemoteData, showToast]);
 
-  // ★ 單一序列存檔函式：確保同一時間只有一個 POST 在飛，且只送最新狀態
+  // ★ 單一序列存檔函式 + Smart Merge 智慧自動合併
   const flushPushToCloud = useCallback(async () => {
     if (!apiUrl || isPushingRef.current || !hasPendingChangesRef.current) return;
 
     isPushingRef.current = true;
-    const pushedSeq = localEditSeqRef.current; // 記住這次要送出的是第幾次本地編輯
-    const snapshot = latestStateRef.current;   // 永遠抓取此刻畫面最新的完整狀態
+    const pushedSeq = localEditSeqRef.current;
+    const snapshot = deepClone(latestStateRef.current);
 
     setSyncStatus('syncing');
     setSyncMessage('同步中...');
@@ -1046,47 +1176,61 @@ function App() {
       }
 
       if (res.status === 'conflict') {
-        // 只有在「沒有更多本地新操作」且「確實發生外部衝突」時，才拉取最新狀態
-        // 若只有你一個人在線卻因網路延遲觸發衝突，則自動更新版本號並重送你的最新畫面
-        const othersOnline = (res.activeUsers || []).filter((u) => u.id !== SESSION_CLIENT_ID);
-        if (othersOnline.length === 0) {
-          // 只有你一個人，直接強制同步最新畫面，絕不還原你的動作
-          const forceRes = await pushToGoogleSheet(apiUrl, {
-            clientId: SESSION_CLIENT_ID,
-            clientName: userName,
-            forceOverwrite: true,
-            guests: latestStateRef.current.guests,
-            tables: latestStateRef.current.tables,
-            showTitles: latestStateRef.current.showTitles,
-          });
-          if (typeof forceRes.version === 'number') {
-            serverVersionRef.current = forceRes.version;
-          }
-          if (localEditSeqRef.current === pushedSeq) {
-            hasPendingChangesRef.current = false;
-          }
-          const now = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-          setSyncStatus('synced');
-          setSyncMessage(`已同步 (${now})`);
-        } else {
-          // 真的有其他同仁同時在線且比你早一步存檔
-          hasPendingChangesRef.current = false;
-          showToast('⚠️ 偵測到其他同仁剛剛修改了資料，已為您載入最新版本');
-          const latest = await fetchFromGoogleSheet(apiUrl, {
-            clientId: SESSION_CLIENT_ID,
-            clientName: userName,
-            knownVersion: 0,
-          });
-          applyRemoteData(apiUrl, userName, latest, false);
+        // 遇到版本衝突：抓取雲端最新資料 -> 進行三向智慧合併 -> 重新寫入
+        const latestRemote = await fetchFromGoogleSheet(apiUrl, {
+          clientId: SESSION_CLIENT_ID,
+          clientName: userName,
+          knownVersion: 0,
+        });
+
+        const remoteState = {
+          guests: Array.isArray(latestRemote.guests) ? latestRemote.guests : [],
+          tables: Array.isArray(latestRemote.tables) && latestRemote.tables.length > 0 ? latestRemote.tables : [emptyTable(1)],
+          showTitles: typeof latestRemote.showTitles === 'boolean' ? latestRemote.showTitles : true,
+        };
+
+        // 以「目前畫面最新狀態」與「遠端最新狀態」做三向合併
+        const currentLocal = latestStateRef.current;
+        const merged = smartMergeStates(baseSnapshotRef.current, currentLocal, remoteState);
+
+        // 更新本地畫面與基準快照
+        skipNextPushRef.current = true;
+        setGuests(merged.guests);
+        setTables(merged.tables);
+        setShowTitles(merged.showTitles);
+        saveLocalState(merged);
+
+        // 強制寫入合併後的完整結果
+        const forceRes = await pushToGoogleSheet(apiUrl, {
+          clientId: SESSION_CLIENT_ID,
+          clientName: userName,
+          forceOverwrite: true,
+          guests: merged.guests,
+          tables: merged.tables,
+          showTitles: merged.showTitles,
+        });
+
+        if (typeof forceRes.version === 'number') {
+          serverVersionRef.current = forceRes.version;
         }
+        baseSnapshotRef.current = deepClone(merged);
+        hasPendingChangesRef.current = false;
+        pendingSinceRef.current = 0;
+
+        const now = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setSyncStatus('synced');
+        setSyncMessage(`已合併同步 (${now})`);
+        showToast('✨ 已自動合併您與其他協作者的排位修改');
       } else {
-        // 寫入成功，更新伺服器版本號
+        // 正常無衝突寫入成功
         if (typeof res.version === 'number') {
           serverVersionRef.current = res.version;
         }
-        // 檢查在我們剛剛上傳的這 1 秒內，使用者是不是又拉動了新的座位？
+        baseSnapshotRef.current = deepClone(snapshot);
+
         if (localEditSeqRef.current === pushedSeq) {
           hasPendingChangesRef.current = false;
+          pendingSinceRef.current = 0;
           const now = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
           setSyncStatus('synced');
           setSyncMessage(`已同步 (${now})`);
@@ -1098,12 +1242,11 @@ function App() {
       setSyncMessage('雲端儲存失敗，請檢查網路');
     } finally {
       isPushingRef.current = false;
-      // 如果在剛才上傳期間使用者又有新動作，立刻補送最新狀態
       if (hasPendingChangesRef.current) {
-        setTimeout(() => { flushPushToCloud(); }, 300);
+        setTimeout(() => { flushPushToCloud(); }, 350);
       }
     }
-  }, [apiUrl, userName, applyRemoteData, showToast]);
+  }, [apiUrl, userName, showToast]);
 
   // 3. 監聽本地資料變動
   useEffect(() => {
@@ -1115,7 +1258,9 @@ function App() {
       return;
     }
 
-    // 標記本地有未同步異動，並遞增本地操作序號
+    if (!hasPendingChangesRef.current) {
+      pendingSinceRef.current = Date.now();
+    }
     hasPendingChangesRef.current = true;
     localEditSeqRef.current += 1;
 
@@ -1143,6 +1288,7 @@ function App() {
       }
     }
     hasPendingChangesRef.current = false;
+    pendingSinceRef.current = 0;
     setSyncStatus('loading');
     setSyncMessage('重新讀取雲端中...');
     try {
@@ -1166,7 +1312,9 @@ function App() {
     setSheetTitle('');
     setActiveUsers([]);
     hasPendingChangesRef.current = false;
+    pendingSinceRef.current = 0;
     serverVersionRef.current = 0;
+    baseSnapshotRef.current = null;
     setSyncStatus('offline');
     setSyncMessage('單機模式');
     setApiModalOpen(false);
