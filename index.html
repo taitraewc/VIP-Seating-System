@@ -229,7 +229,6 @@ function makeId(prefix = 'id') {
   return `${prefix}_${Date.now().toString(36)}_${idCounter}`;
 }
 
-// 每個瀏覽器分頁產生獨立 clientId，方便區分多組人同時在線
 const SESSION_CLIENT_ID = `cli_${Math.random().toString(36).slice(2, 8)}`;
 
 /* ============ utils/storage & API Config ============ */
@@ -637,7 +636,7 @@ function TableCard({
   );
 }
 
-/* ============ ApiConfigModal (登入 / 切換 API 與協作者名稱設定) ============ */
+/* ============ ApiConfigModal ============ */
 function ApiConfigModal({ isOpen, currentUrl, currentUserName, sheetTitle, onClose, onConnectSuccess, onDisconnect, canClose }) {
   const [urlInput, setUrlInput] = useState(currentUrl || '');
   const [nameInput, setNameInput] = useState(currentUserName || '');
@@ -907,12 +906,20 @@ function App() {
   const fileInputRef = useRef(null);
   const projectInputRef = useRef(null);
 
-  // 追蹤目前本機掌握的雲端版本號與同步狀態
+  // ★ 核心防覆蓋與排隊狀態控制 Refs
   const serverVersionRef = useRef(0);
   const skipNextPushRef = useRef(false);
   const isPushingRef = useRef(false);
   const isDraggingRef = useRef(false);
+  const hasPendingChangesRef = useRef(false); // 只要本地有還沒存上雲端的修改，就鎖住不讓輪詢覆蓋畫面
+  const localEditSeqRef = useRef(0);         // 每次本地修改遞增序號，用來判斷推送期間是否又做了新操作
+  const latestStateRef = useRef({ guests, tables, showTitles });
   const pushTimerRef = useRef(null);
+
+  // 永遠保持 latestStateRef 指向畫面最新狀態
+  useEffect(() => {
+    latestStateRef.current = { guests, tables, showTitles };
+  }, [guests, tables, showTitles]);
 
   const showToast = useCallback((msg) => {
     setToastMsg(msg);
@@ -923,7 +930,14 @@ function App() {
 
   // 套用從雲端抓回來的資料
   const applyRemoteData = useCallback((url, name, data, isAutoPoll = false) => {
+    // 若是背景自動輪詢，但使用者此刻有尚未存上雲端的新操作，絕對不能蓋掉使用者畫面
+    if (isAutoPoll && (hasPendingChangesRef.current || isPushingRef.current || isDraggingRef.current)) {
+      return;
+    }
+
     skipNextPushRef.current = true;
+    hasPendingChangesRef.current = false;
+
     const remoteGuests = Array.isArray(data.guests) ? data.guests : [];
     const remoteTables = Array.isArray(data.tables) && data.tables.length > 0 ? data.tables : [emptyTable(1)];
     const remoteShowTitles = typeof data.showTitles === 'boolean' ? data.showTitles : true;
@@ -980,12 +994,12 @@ function App() {
     return () => { cancelled = true; };
   }, [initialApiUrl]);
 
-  // 2. 每 20 秒背景自動輪詢（偵測在線人數 + 增量更新他人修改）
+  // 2. 每 20 秒背景自動輪詢
   useEffect(() => {
     if (!apiUrl) return;
     const intervalId = setInterval(async () => {
-      // 若正在推送資料或使用者正在拖拉滑鼠，略過這次輪詢避免衝突
-      if (isPushingRef.current || isDraggingRef.current) return;
+      // 有未儲存修改、正在推送、或正在拖拉時，跳過輪詢避免還原動作
+      if (hasPendingChangesRef.current || isPushingRef.current || isDraggingRef.current) return;
       try {
         const data = await fetchFromGoogleSheet(apiUrl, {
           clientId: SESSION_CLIENT_ID,
@@ -996,7 +1010,6 @@ function App() {
           setActiveUsers(data.activeUsers);
         }
         if (data.status === 'success') {
-          // 雲端有更新版本，套用最新內容
           applyRemoteData(apiUrl, userName, data, true);
         }
       } catch (err) {
@@ -1007,7 +1020,92 @@ function App() {
     return () => clearInterval(intervalId);
   }, [apiUrl, userName, applyRemoteData]);
 
-  // 3. 本地資料變動時，防抖自動寫入雲端（附帶版本號檢查防覆蓋）
+  // ★ 單一序列存檔函式：確保同一時間只有一個 POST 在飛，且只送最新狀態
+  const flushPushToCloud = useCallback(async () => {
+    if (!apiUrl || isPushingRef.current || !hasPendingChangesRef.current) return;
+
+    isPushingRef.current = true;
+    const pushedSeq = localEditSeqRef.current; // 記住這次要送出的是第幾次本地編輯
+    const snapshot = latestStateRef.current;   // 永遠抓取此刻畫面最新的完整狀態
+
+    setSyncStatus('syncing');
+    setSyncMessage('同步中...');
+
+    try {
+      const res = await pushToGoogleSheet(apiUrl, {
+        clientId: SESSION_CLIENT_ID,
+        clientName: userName,
+        baseVersion: serverVersionRef.current,
+        guests: snapshot.guests,
+        tables: snapshot.tables,
+        showTitles: snapshot.showTitles,
+      });
+
+      if (Array.isArray(res.activeUsers)) {
+        setActiveUsers(res.activeUsers);
+      }
+
+      if (res.status === 'conflict') {
+        // 只有在「沒有更多本地新操作」且「確實發生外部衝突」時，才拉取最新狀態
+        // 若只有你一個人在線卻因網路延遲觸發衝突，則自動更新版本號並重送你的最新畫面
+        const othersOnline = (res.activeUsers || []).filter((u) => u.id !== SESSION_CLIENT_ID);
+        if (othersOnline.length === 0) {
+          // 只有你一個人，直接強制同步最新畫面，絕不還原你的動作
+          const forceRes = await pushToGoogleSheet(apiUrl, {
+            clientId: SESSION_CLIENT_ID,
+            clientName: userName,
+            forceOverwrite: true,
+            guests: latestStateRef.current.guests,
+            tables: latestStateRef.current.tables,
+            showTitles: latestStateRef.current.showTitles,
+          });
+          if (typeof forceRes.version === 'number') {
+            serverVersionRef.current = forceRes.version;
+          }
+          if (localEditSeqRef.current === pushedSeq) {
+            hasPendingChangesRef.current = false;
+          }
+          const now = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          setSyncStatus('synced');
+          setSyncMessage(`已同步 (${now})`);
+        } else {
+          // 真的有其他同仁同時在線且比你早一步存檔
+          hasPendingChangesRef.current = false;
+          showToast('⚠️ 偵測到其他同仁剛剛修改了資料，已為您載入最新版本');
+          const latest = await fetchFromGoogleSheet(apiUrl, {
+            clientId: SESSION_CLIENT_ID,
+            clientName: userName,
+            knownVersion: 0,
+          });
+          applyRemoteData(apiUrl, userName, latest, false);
+        }
+      } else {
+        // 寫入成功，更新伺服器版本號
+        if (typeof res.version === 'number') {
+          serverVersionRef.current = res.version;
+        }
+        // 檢查在我們剛剛上傳的這 1 秒內，使用者是不是又拉動了新的座位？
+        if (localEditSeqRef.current === pushedSeq) {
+          hasPendingChangesRef.current = false;
+          const now = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          setSyncStatus('synced');
+          setSyncMessage(`已同步 (${now})`);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setSyncStatus('error');
+      setSyncMessage('雲端儲存失敗，請檢查網路');
+    } finally {
+      isPushingRef.current = false;
+      // 如果在剛才上傳期間使用者又有新動作，立刻補送最新狀態
+      if (hasPendingChangesRef.current) {
+        setTimeout(() => { flushPushToCloud(); }, 300);
+      }
+    }
+  }, [apiUrl, userName, applyRemoteData, showToast]);
+
+  // 3. 監聽本地資料變動
   useEffect(() => {
     saveLocalState({ guests, tables, showTitles });
 
@@ -1017,63 +1115,34 @@ function App() {
       return;
     }
 
+    // 標記本地有未同步異動，並遞增本地操作序號
+    hasPendingChangesRef.current = true;
+    localEditSeqRef.current += 1;
+
     setSyncStatus('syncing');
-    setSyncMessage('準備同步...');
+    setSyncMessage('等待同步...');
 
     if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
-    pushTimerRef.current = setTimeout(async () => {
-      isPushingRef.current = true;
-      setSyncMessage('同步中...');
-      try {
-        const res = await pushToGoogleSheet(apiUrl, {
-          clientId: SESSION_CLIENT_ID,
-          clientName: userName,
-          baseVersion: serverVersionRef.current,
-          guests,
-          tables,
-          showTitles,
-        });
-
-        if (Array.isArray(res.activeUsers)) {
-          setActiveUsers(res.activeUsers);
-        }
-
-        if (res.status === 'conflict') {
-          // 偵測到別人比你早一步存檔，立刻拉取最新狀態避免蓋掉對方
-          showToast('⚠️ 偵測到其他同仁剛剛修改了資料，已為您自動載入最新版本');
-          const latest = await fetchFromGoogleSheet(apiUrl, {
-            clientId: SESSION_CLIENT_ID,
-            clientName: userName,
-            knownVersion: 0,
-          });
-          applyRemoteData(apiUrl, userName, latest, false);
-        } else {
-          if (typeof res.version === 'number') {
-            serverVersionRef.current = res.version;
-          }
-          const now = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-          setSyncStatus('synced');
-          setSyncMessage(`已同步 (${now})`);
-        }
-      } catch (err) {
-        console.error(err);
-        setSyncStatus('error');
-        setSyncMessage('雲端儲存失敗，請檢查網路');
-      } finally {
-        isPushingRef.current = false;
-      }
-    }, 1000);
+    pushTimerRef.current = setTimeout(() => {
+      flushPushToCloud();
+    }, 800);
 
     return () => {
       if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
     };
-  }, [guests, tables, showTitles, apiUrl, userName, applyRemoteData, showToast]);
+  }, [guests, tables, showTitles, apiUrl, flushPushToCloud]);
 
   const handleManualPull = async () => {
     if (!apiUrl) {
       setApiModalOpen(true);
       return;
     }
+    if (hasPendingChangesRef.current) {
+      if (!window.confirm('您目前還有尚未同步至雲端的修改，強制重新載入將會覆蓋剛才的動作，確定要載入嗎？')) {
+        return;
+      }
+    }
+    hasPendingChangesRef.current = false;
     setSyncStatus('loading');
     setSyncMessage('重新讀取雲端中...');
     try {
@@ -1096,6 +1165,7 @@ function App() {
     setApiUrl('');
     setSheetTitle('');
     setActiveUsers([]);
+    hasPendingChangesRef.current = false;
     serverVersionRef.current = 0;
     setSyncStatus('offline');
     setSyncMessage('單機模式');
@@ -1329,7 +1399,6 @@ function App() {
     setTables([emptyTable(1)]);
   };
 
-  // 整理目前在線名單顯示文字
   const onlineCount = Math.max(1, activeUsers.length);
   const otherUsers = activeUsers.filter((u) => u.id !== SESSION_CLIENT_ID);
   const presenceLabel = otherUsers.length > 0
